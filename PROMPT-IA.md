@@ -19,14 +19,15 @@ Passos:
 1. SERVER (Windows, máquina local)
    - Criar o arquivo de config em C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf com:
      section: screens — <SCREEN_WIN>, <SCREEN_MAC>, <SCREEN_LINUX>
+     se <SCREEN_MAC> precisar de Ctrl→Cmd, adicionar dentro de screens: <SCREEN_MAC>: com "ctrl = meta" (remapeamento de modificador é POR SCREEN, não global; não usar "key: X = Y" que dá erro de config)
      section: links — <SCREEN_WIN>.left = <SCREEN_MAC>; <SCREEN_MAC>.right = <SCREEN_WIN> e .left = <SCREEN_LINUX>; <SCREEN_LINUX>.right = <SCREEN_MAC>
    - Garantir que a porta 24800/tcp está liberada no firewall (inbound).
    - Iniciar o server headless:
      Start-Process -FilePath "C:\Program Files\Barrier\barriers.exe" -ArgumentList '--config','C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf','--disable-crypto','-f'
    - Verificar escuta: netstat -ano | findstr 24800
-   - Criar autostart: arquivo C:\Users\<USER_WIN>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\barrier-server.cmd contendo:
-     @echo off
-     start "" "C:\Program Files\Barrier\barriers.exe" --config C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf --disable-crypto -f
+   - Criar autostart OCULTO (sem janela) com VBScript, pois barriers é app de console e o .cmd abre janela que mata o server se fechada. Arquivo C:\Users\<USER_WIN>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\barrier-server.vbs contendo:
+     CreateObject("Wscript.Shell").Run """C:\Program Files\Barrier\barriers.exe"" --config C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf --disable-crypto -f", 0, False
+   - Garantir layout de teclado do Windows ABNT2 (00010416) igual ao Linux (br), senão ç/acentos não batem. O Barrier NÃO remapeia layout de teclado entre máquinas; os layouts devem coincidir.
 
 2. CLIENT (Mac, via SSH user <USER_MAC>@<IP_MAC>)
    - Testar manualmente:
@@ -46,5 +47,7 @@ Passos:
 4. VALIDAÇÃO FINAL
    - Em cada máquina confirmar conexão ESTABLISHED na porta 24800 com o Windows.
    - Matar qualquer client órfão (pkill -f barrierc no Linux, killall barrierc no Mac) que aponte para IP errado ou cause "server already has a connected client with our name".
+   - Se o client Linux cair de novo, verificar se a GUI do Barrier (`barrier`) está aberta relançando clients com IP errado — fechar a GUI e deixar só o systemd.
+   - Confirmar layout de teclado: Windows ABNT2 (0416:00010416) e Linux br (setxkbmap -query) iguais para o ç funcionar.
    - NÃO habilitar SSL/crypto em nenhum lado (usar --disable-crypto em todos os clients e server).
 ```

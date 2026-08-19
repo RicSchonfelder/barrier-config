@@ -34,6 +34,7 @@ Crie o arquivo de config em `C:\Users\<usuario>\AppData\Local\Barrier\Barrier.co
 section: screens
 	desktop:
 	macbook:
+		ctrl = meta
 	lab:
 end
 
@@ -48,6 +49,8 @@ section: links
 end
 ```
 
+**Mapeamento de modificadores por screen:** dentro da seção `screens`, cada screen pode ter opções de modificador na forma `nome = novo` (`shift`, `ctrl`, `alt`, `altgr`, `meta`, `super`). O exemplo acima faz o **Ctrl do Windows virar Command (⌘) no Mac** — útil para atalhos tipo Ctrl+C/V funcionarem como Cmd+C/V. Aplicar apenas no screen do Mac não afeta o Linux.
+
 ### 1.2 Iniciar o server
 
 ```powershell
@@ -61,14 +64,19 @@ Confira a escuta:
 netstat -ano | findstr 24800
 ```
 
-### 1.3 Iniciar automaticamente
+### 1.3 Iniciar automaticamente (sem janela)
 
-Crie o arquivo `C:\Users\<usuario>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\barrier-server.cmd`:
+O `barriers` é um app de console — se iniciado por um `.cmd`, abre uma janela que, se fechada, **mata o server**. Use um VBScript que roda o server oculto (sem janela):
 
-```bat
-@echo off
-start "" "C:\Program Files\Barrier\barriers.exe" --config C:\Users\<usuario>\AppData\Local\Barrier\Barrier.conf --disable-crypto -f
+Crie o arquivo `C:\Users\<usuario>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\barrier-server.vbs`:
+
+```vbs
+CreateObject("Wscript.Shell").Run """C:\Program Files\Barrier\barriers.exe"" --config C:\Users\<usuario>\AppData\Local\Barrier\Barrier.conf --disable-crypto -f", 0, False
 ```
+
+O terceiro argumento `0` oculta a janela; o `False` não espera o processo terminar. O server sobe no login sem nada visível. Teste com `wscript "caminho\barrier-server.vbs"` e confirme com `netstat -ano | findstr 24800`.
+
+> A pasta Startup inicia **no login**. Para iniciar no boot (antes do login), use o Agendador de Tarefas.
 
 ---
 
@@ -186,6 +194,19 @@ Movimentação esperada: mouse no **Windows**, vá à borda esquerda → **Mac**
 
 ---
 
+## 5. Layout de teclado entre máquinas
+
+O Barrier transmite a tecla conforme o layout da máquina **de origem** (onde o teclado físico está conectado). Ou seja, o caractere que chega no destino é decidido pelo layout do servidor, não do client. Não existe remapeamento de layout de teclado (letras/caracteres) no Barrier — só de modificadores.
+
+Para o `ç` e acentos funcionarem igual em todas as telas, **todas as máquinas devem usar o mesmo layout**:
+
+- **Windows (ABNT2):** `00010416` — `Get-WinUserLanguageList` deve mostrar `0416:00010416`
+- **Linux (br):** `setxkbmap -query` deve mostrar `X11 Layout: br`
+
+> Se o Windows usar US International (`00020409`), num teclado físico ABNT2 a tecla `;` vira `ç` no lugar errado. Alinhe os layouts para o mesmo idioma.
+
+---
+
 ## Solução de problemas
 
 | Sintoma | Causa provável | Correção |
@@ -194,3 +215,7 @@ Movimentação esperada: mouse no **Windows**, vá à borda esquerda → **Mac**
 | `server already has a connected client with our name` | Cliente órfão conectado | Matar processos antigos (`pkill -f barrierc` / `killall barrierc`) e reiniciar |
 | Client antigo apontando para IP errado | Restou processo de config anterior | Matar tudo e subir de novo com o IP correto |
 | Porta fechada | Firewall | Liberar `24800/tcp` (entrada, no server) |
+| Client volta a cair após matar processos | GUI do Barrier aberta relançando clients | Fechar a GUI (`barrier`), deixar só o systemd gerenciar |
+| Server para ao fechar janela | `barriers` é app de console iniciado por `.cmd` | Usar o VBScript oculto (seção 1.3) |
+| `key: Ctrl = Meta` dá erro de config | Sintaxe de remapeamento é por screen | Usar `ctrl = meta` dentro da seção `screens` |
+| `;` digita `ç` no lugar errado | Layout do Windows não bate com o teclado físico | Alinhar layouts (seção 5) |
