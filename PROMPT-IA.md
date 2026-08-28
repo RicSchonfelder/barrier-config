@@ -1,53 +1,60 @@
-# Prompt para IA — Configurar Barrier (Windows como server)
+# Prompt para IA — Configurar e diagnosticar Barrier (Windows como server)
 
-Cole este prompt em uma IA com acesso shell às 3 máquinas via SSH/PowerShell. Substitua `<IP_WINDOWS>`, `<IP_MAC>`, `<IP_LINUX>`, `<USER_WIN>`, `<USER_MAC>`, `<USER_LINUX>`, `<SCREEN_WIN>`, `<SCREEN_MAC>`, `<SCREEN_LINUX>` antes de executar. Os valores em destaque são fictícios.
+Cole este prompt em uma IA com acesso shell às 3 máquinas (SSH para Mac/Linux, PowerShell para Windows).
+Substitua os valores fictícios antes de rodar. Use os IPs/screen names reais da sua rede.
 
 ```
-Configure o Barrier (compartilhamento de teclado/mouse via rede) em 3 máquinas.
-Windows é o SERVER; Mac e Linux são CLIENTS.
+Configure e torne automático o Barrier (compartilhamento de teclado/mouse via rede) em 3 máquinas.
+Windows = SERVER; Mac e Linux = CLIENTS.
 
-TOPOLOGIA (layout da esquerda para a direita):
-Linux (<SCREEN_LINUX>) | Mac (<SCREEN_MAC>) | Windows (<SCREEN_WIN>)
+TOPOLOGIA (esquerda→direita): <SCREEN_MAC> | <SCREEN_WIN> | <SCREEN_LINUX>
+IPs fictícios:
+- Windows (server): <IP_WIN>  (ex: 192.168.100.94)  screen: <SCREEN_WIN>
+- Mac (client):     <IP_MAC>  (ex: 192.168.100.83)  screen: <SCREEN_MAC>
+- Linux (client):   <IP_LINUX>(ex: 192.168.100.102) screen: <SCREEN_LINUX>
 
-IPs (fictícios):
-- Windows (server): <IP_WINDOWS>  ex: 192.168.1.50  screen: <SCREEN_WIN>
-- Mac (client):     <IP_MAC>      ex: 192.168.1.60  screen: <SCREEN_MAC>
-- Linux (client):   <IP_LINUX>    ex: 192.168.1.70  screen: <SCREEN_LINUX>
+REGRAS GERAIS (não negociáveis):
+- NÃO use criptografia: --disable-crypto em server E clients. TLS desencontrado = quedas.
+- O Barrier NÃO remapeia layout de caracteres, só modificadores. O destino interpreta com o próprio layout; portanto o layout do client deve casar com o do server (origem).
+- Remapeamento de modificador é POR SCREEN dentro de `section: screens` (ex.: <SCREEN_MAC>: "ctrl = meta"). NUNCA use "key: X = Y" (erro de config).
+- Esta build NÃO suporta limite de tamanho de clipboard (clipboardSharingSize dá "unknown argument"). Para eliminar lag por clipboard grande, use clipboardSharing = false na section: options.
 
-Passos:
+PASSOS:
 
-1. SERVER (Windows, máquina local)
-   - Criar o arquivo de config em C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf com:
-     section: screens — <SCREEN_WIN>, <SCREEN_MAC>, <SCREEN_LINUX>
-     se <SCREEN_MAC> precisar de Ctrl→Cmd, adicionar dentro de screens: <SCREEN_MAC>: com "ctrl = meta" (remapeamento de modificador é POR SCREEN, não global; não usar "key: X = Y" que dá erro de config)
-     section: links — <SCREEN_WIN>.left = <SCREEN_MAC>; <SCREEN_MAC>.right = <SCREEN_WIN> e .left = <SCREEN_LINUX>; <SCREEN_LINUX>.right = <SCREEN_MAC>
-   - Garantir que a porta 24800/tcp está liberada no firewall (inbound).
-   - Iniciar o server headless:
-     Start-Process -FilePath "C:\Program Files\Barrier\barriers.exe" -ArgumentList '--config','C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf','--disable-crypto','-f'
-   - Verificar escuta: netstat -ano | findstr 24800
-   - Criar autostart OCULTO (sem janela) com VBScript, pois barriers é app de console e o .cmd abre janela que mata o server se fechada. Arquivo C:\Users\<USER_WIN>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\barrier-server.vbs contendo:
-     CreateObject("Wscript.Shell").Run """C:\Program Files\Barrier\barriers.exe"" --config C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf --disable-crypto -f", 0, False
-   - Garantir layout de teclado do Windows ABNT2 (00010416) igual ao Linux (br), senão ç/acentos não batem. O Barrier NÃO remapeia layout de teclado entre máquinas; os layouts devem coincidir.
+1) SERVER (Windows, local)
+   - Escreva C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf com:
+     section: screens — <SCREEN_WIN>:, <SCREEN_MAC>: (modificadores se quiser), <SCREEN_LINUX>:
+     section: links — <SCREEN_WIN>.left=<SCREEN_MAC>; <SCREEN_WIN>.right=<SCREEN_LINUX>; <SCREEN_MAC>.right=<SCREEN_WIN>; <SCREEN_LINUX>.left=<SCREEN_WIN>
+     section: options — clipboardSharing = false
+   - Libere 24800/tcp (entrada) no firewall do Windows.
+   - Autostart robusto via Agendador de Tarefas (não use .cmd que abre janela e mata o server):
+     $action = New-ScheduledTaskAction -Execute "C:\Program Files\Barrier\barriers.exe" -Argument "--name <SCREEN_WIN> --disable-crypto -c C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf"
+     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
+     Register-ScheduledTask -TaskName "BarrierServer" -Action $action -Trigger $trigger -Settings $settings -Force
+   - Teste manual se quiser: Start-Process "C:\Program Files\Barrier\barriers.exe" -ArgumentList "--name","<SCREEN_WIN>","--disable-crypto","-c","C:\Users\<USER_WIN>\AppData\Local\Barrier\Barrier.conf"
+   - Confirme: Get-NetTCPConnection -LocalPort 24800 -State Listen
 
-2. CLIENT (Mac, via SSH user <USER_MAC>@<IP_MAC>)
-   - Testar manualmente:
-     /Applications/Barrier.app/Contents/MacOS/barrierc -f --no-tray --name <SCREEN_MAC> --disable-crypto <IP_WINDOWS>:24800
-   - Se der erro "No route to host" mesmo com nc ok na porta, avisar o usuário que precisa conceder permissão de Rede Local + Acessibilidade (Ajustes > Privacidade e Segurança) — não dá para automatizar.
-   - Criar autostart com launchd: ~/Library/LaunchAgents/com.barrier.client.plist com Label com.barrier.client, ProgramArguments apontando para o barrierc com --name <SCREEN_MAC> --disable-crypto <IP_WINDOWS>:24800, RunAtLoad true, KeepAlive true.
-   - plutil -lint, depois launchctl load. Confirmar com lsof -i :24800 (deve ter ESTABLISHED para <IP_WINDOWS>).
+2) CLIENT (Mac, via SSH <USER_MAC>@<IP_MAC>)
+   - Teste: /Applications/Barrier.app/Contents/MacOS/barrierc -f --no-tray --name <SCREEN_MAC> --disable-crypto <IP_WIN>:24800
+   - Se "No route to host" mesmo com porta ok, AVISE o usuário que ele precisa conceder Rede Local + Acessibilidade + Input Monitoring em Ajustes→Privacidade (não automatizável).
+   - launchd: ~/Library/LaunchAgents/com.barrier.client.plist com Label com.barrier.client, ProgramArguments=[barrierc, -f, --no-tray, --name, <SCREEN_MAC>, --disable-crypto, <IP_WIN>:24800], RunAtLoad true, KeepAlive true. plutil -lint; launchctl load. lsof -i :24800 → ESTAB para <IP_WIN>.
 
-3. CLIENT (Linux, via SSH user <USER_LINUX>@<IP_LINUX>)
-   - Instalar se necessário: sudo apt install barrier
-   - Criar ~/.config/systemd/user/barrier-client.service com ExecStart=/usr/bin/barrierc -f --no-tray --name <SCREEN_LINUX> --disable-crypto <IP_WINDOWS>:24800, Restart=always, RestartSec=5.
-   - systemctl --user daemon-reload && systemctl --user enable barrier-client.service
-   - loginctl enable-linger <USER_LINUX>
-   - systemctl --user start barrier-client.service
-   - Confirmar: ss -tn | grep 24800 → ESTAB para <IP_WINDOWS>.
+3) CLIENT (Linux, via SSH <USER_LINUX>@<IP_LINUX>)
+   - sudo apt install barrier (se faltar).
+   - systemd user: ~/.config/systemd/user/barrier-client.service com ExecStart=/usr/bin/barrierc -f --no-tray --name <SCREEN_LINUX> --disable-crypto <IP_WIN>:24800, Restart=always, RestartSec=5, WantedBy=default.target. systemctl --user daemon-reload && enable --now. ss -tn | grep 24800 → ESTAB para <IP_WIN>.
+   - AUTO-LAYOUT (quando server é US International e Linux é ABNT2): criar ~/bin/barrier-layout.sh que, num loop, faz setxkbmap para "us intl" se pgrep barrier/barrierc/barriers estiver ativo, senão volta para "br" (model abnt2, option compose:menu). Criar ~/.config/systemd/user/barrier-layout.service (ExecStart=%h/bin/barrier-layout.sh, WantedBy=default.target) e enable --now. O script deve exportar DISPLAY=:0 e XAUTHORITY=$HOME/.Xauthority. Em Wayland troque setxkbmap por gsettings.
 
-4. VALIDAÇÃO FINAL
-   - Em cada máquina confirmar conexão ESTABLISHED na porta 24800 com o Windows.
-   - Matar qualquer client órfão (pkill -f barrierc no Linux, killall barrierc no Mac) que aponte para IP errado ou cause "server already has a connected client with our name".
-   - Se o client Linux cair de novo, verificar se a GUI do Barrier (`barrier`) está aberta relançando clients com IP errado — fechar a GUI e deixar só o systemd.
-   - Confirmar layout de teclado: Windows ABNT2 (0416:00010416) e Linux br (setxkbmap -query) iguais para o ç funcionar.
-   - NÃO habilitar SSL/crypto em nenhum lado (usar --disable-crypto em todos os clients e server).
+4) VALIDAÇÃO
+   - Em cada máquina: conexão ESTABLISHED na 24800.
+   - Matar client órfão (pkill -f barrierc no Linux / killall barrierc no Mac) que cause "server already has a connected client with our name".
+   - Conceder permissões no Mac se faltarem.
+   - Conferir layouts: server US Intl → Linux deve estar em us intl (script 3); server ABNT2 → Linux br.
+
+5) DIAGNÓSTICO DE LAG/QUEDA NO MAC (se necessário)
+   - No Windows: Stop-Process -Name barriers -Force; depois Start-Process barriers.exe -ArgumentList "--name","<SCREEN_WIN>","--disable-crypto","-c","<conf>","-d","DEBUG","-l","$env:USERPROFILE\barrier_server.log" -WindowStyle Hidden
+   - Reproduza a falha e leia barrier_server.log (grep por <SCREEN_MAC>, dead, slow, "clipboard ... size=", switch). Volte à instância normal (sem -d/-l) depois.
+   - Edge jitter (cursor vibrando na borda): desloque a tela do Mac no Configure Server ou use Lock to screen (Scroll Lock).
 ```
+
+> Veja também `AI-REFERENCE.md` (fatos estruturados) e `SKILL.md` (skill para IAs).
